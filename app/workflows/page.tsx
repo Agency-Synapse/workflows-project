@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
+import { Download, Link2, Loader2, AlertCircle, ArrowLeft, Sparkles } from "lucide-react";
 
 type Lead = {
   id: string;
@@ -181,7 +182,7 @@ function WorkflowsPageContent() {
           <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-end">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-purple-400/30 bg-purple-500/10 px-3 py-1 text-xs text-purple-200">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-gradient-to-r from-purple-400 to-pink-400" />
+                <Sparkles className="h-3 w-3 animate-pulse" />
                 Bibliothèque de workflows
               </div>
               <h1 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">
@@ -204,16 +205,18 @@ function WorkflowsPageContent() {
 
             <Link
               href="/"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
             >
-              ← Revenir au formulaire
+              <ArrowLeft className="h-4 w-4" />
+              Revenir au formulaire
             </Link>
           </div>
 
           <div className="mt-8">
             {error ? (
-              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-5 py-4 text-sm text-red-200">
-                {error}
+              <div className="flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-5 py-4 text-sm text-red-200">
+                <AlertCircle className="h-5 w-5 shrink-0" />
+                <span>{error}</span>
               </div>
             ) : null}
 
@@ -260,7 +263,7 @@ function WorkflowsPageContent() {
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center">
-                            <span className="text-6xl">🤖</span>
+                            <Sparkles className="h-16 w-16 text-white" />
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -299,9 +302,19 @@ function WorkflowsPageContent() {
                             type="button"
                             onClick={() => downloadWorkflow(wf)}
                             disabled={downloadingId === wf.id}
-                            className="flex-1 transform rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 py-2.5 text-sm font-bold text-white shadow-lg shadow-purple-500/50 transition-all hover:scale-[1.02] hover:from-purple-700 hover:to-pink-700 hover:shadow-purple-500/80 disabled:cursor-not-allowed disabled:opacity-70"
+                            className="flex flex-1 items-center justify-center gap-2 transform rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 py-2.5 text-sm font-bold text-white shadow-lg shadow-purple-500/50 transition-all hover:scale-[1.02] hover:from-purple-700 hover:to-pink-700 hover:shadow-purple-500/80 disabled:cursor-not-allowed disabled:opacity-70"
                           >
-                            {downloadingId === wf.id ? "⏳ Download…" : "⬇️ Download"}
+                            {downloadingId === wf.id ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Download…
+                              </>
+                            ) : (
+                              <>
+                                <Download className="h-4 w-4" />
+                                Download
+                              </>
+                            )}
                           </button>
 
                           <button
@@ -310,7 +323,7 @@ function WorkflowsPageContent() {
                             className="rounded-xl border border-white/20 bg-white/10 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-white/20"
                             title="Afficher l'URL dans la console"
                           >
-                            🔗
+                            <Link2 className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
@@ -324,9 +337,13 @@ function WorkflowsPageContent() {
           {/* Footer avec infos debug */}
           {workflows.length > 0 && (
             <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-gray-400">
-              <p className="font-medium text-gray-300">💡 Debug info:</p>
-              <p className="mt-1">
-                • Clique sur le bouton 🔗 pour voir l'URL du fichier dans la console
+              <p className="flex items-center gap-2 font-medium text-gray-300">
+                <AlertCircle className="h-4 w-4" />
+                Debug info:
+              </p>
+              <p className="mt-1 flex items-start gap-2">
+                <Link2 className="h-3 w-3 mt-0.5 shrink-0" />
+                Clique sur le bouton avec l'icône de lien pour voir l'URL du fichier dans la console
               </p>
               <p className="mt-1">
                 • Les fichiers doivent être dans le bucket{" "}
