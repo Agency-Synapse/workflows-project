@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -24,7 +24,7 @@ type Workflow = {
 // URL de base Supabase (hardcodée car process.env ne fonctionne pas côté client)
 const SUPABASE_URL = "https://genbzwagezbczhnfcguo.supabase.co";
 
-export default function WorkflowsPage() {
+function WorkflowsPageContent() {
   const searchParams = useSearchParams();
 
   const token = useMemo(() => {
@@ -341,5 +341,25 @@ export default function WorkflowsPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+// Wrapper avec Suspense pour Next.js 16
+export default function WorkflowsPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black">
+          <div className="flex min-h-screen items-center justify-center">
+            <div className="text-center">
+              <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-purple-500 border-t-transparent"></div>
+              <p className="mt-4 text-white">Chargement...</p>
+            </div>
+          </div>
+        </main>
+      }
+    >
+      <WorkflowsPageContent />
+    </Suspense>
   );
 }
