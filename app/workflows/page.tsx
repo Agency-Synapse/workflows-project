@@ -4,7 +4,20 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
-import { Download, Link2, Loader2, AlertCircle, ArrowLeft, Sparkles } from "lucide-react";
+import { 
+  getWorkflowMetaFromFilename, 
+  syncWorkflowsMetaToSupabase,
+  type WorkflowWithOptionalMeta 
+} from "@/lib/workflowsMeta";
+import { 
+  Download,
+  Link2,
+  Loader2,
+  AlertCircle,
+  ArrowLeft,
+  Sparkles,
+  RefreshCw
+} from "lucide-react";
 
 type Lead = {
   id: string;
@@ -39,6 +52,7 @@ function WorkflowsPageContent() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +74,13 @@ function WorkflowsPageContent() {
 
         console.log("🔍 Recherche lead avec token:", token);
 
+        // Compter combien de leads existent dans la base
+        const { count: totalLeads } = await supabase
+          .from("leads")
+          .select("*", { count: "exact", head: true });
+        
+        console.log(`📊 Total de leads dans la base: ${totalLeads}`);
+
         const { data: leadRow, error: leadError } = await supabase
           .from("leads")
           .select("id, first_name, last_name, email, access_token")
@@ -68,10 +89,25 @@ function WorkflowsPageContent() {
 
         console.log("📊 Résultat recherche lead:", { leadRow, leadError });
 
-        if (leadError) throw new Error(leadError.message);
+        if (leadError) {
+          console.error("❌ Erreur Supabase:", leadError);
+          throw new Error(`Erreur base de données: ${leadError.message}`);
+        }
+        
         if (!leadRow) {
+          // Debug : afficher quelques tokens existants (sans données sensibles)
+          const { data: sampleLeads } = await supabase
+            .from("leads")
+            .select("email, access_token")
+            .limit(3);
+          
+          console.log("🔍 Exemples de tokens existants:", sampleLeads?.map(l => ({
+            email: l.email?.slice(0, 3) + "***",
+            token: l.access_token?.slice(0, 8) + "..."
+          })));
+          
           throw new Error(
-            "Token invalide ou expiré. Merci de repasser par le formulaire."
+            `Token invalide ou expiré. ${totalLeads} lead(s) dans la base. Repasse par le formulaire pour obtenir un nouveau token.`
           );
         }
 
@@ -88,7 +124,22 @@ function WorkflowsPageContent() {
 
         if (workflowsError) throw new Error(workflowsError.message);
         if (cancelled) return;
-        setWorkflows((workflowRows || []) as Workflow[]);
+        
+        // Enrichir les workflows avec les métadonnées générées si manquantes
+        const enrichedWorkflows = (workflowRows || []).map((wf: any) => {
+          // Si name ou description manquent, on génère
+          if (!wf.name || !wf.description) {
+            const meta = getWorkflowMetaFromFilename(wf.json_filename);
+            return {
+              ...wf,
+              name: wf.name || meta.name,
+              description: wf.description || meta.description
+            };
+          }
+          return wf;
+        });
+        
+        setWorkflows(enrichedWorkflows as Workflow[]);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Erreur inconnue.");
@@ -168,6 +219,33 @@ function WorkflowsPageContent() {
   function getScreenshotUrl(wf: Workflow): string | null {
     if (!wf.screenshot_filename) return null;
     return `${SUPABASE_URL}/storage/v1/object/public/workflows-screenshots/${wf.screenshot_filename}`;
+  }
+
+  // Fonction pour synchroniser les métadonnées vers la base Supabase
+  async function syncMetadataToDatabase() {
+    setIsSyncing(true);
+    try {
+      const result = await syncWorkflowsMetaToSupabase(workflows as WorkflowWithOptionalMeta[]);
+      console.log(`✅ Sync terminé: ${result.success} workflows mis à jour`);
+      
+      // Recharger les workflows depuis la base
+      const supabase = getSupabaseClient();
+      const { data: refreshedWorkflows } = await supabase
+        .from("workflows")
+        .select("id, name, description, json_filename, screenshot_filename, updated_at")
+        .order("updated_at", { ascending: false });
+      
+      if (refreshedWorkflows) {
+        setWorkflows(refreshedWorkflows as Workflow[]);
+      }
+      
+      alert(`✅ ${result.success} workflows mis à jour dans la base !`);
+    } catch (err) {
+      console.error("❌ Erreur sync:", err);
+      alert("Erreur lors de la synchronisation");
+    } finally {
+      setIsSyncing(false);
+    }
   }
 
   return (
@@ -334,25 +412,40 @@ function WorkflowsPageContent() {
             )}
           </div>
 
-          {/* Footer avec infos debug */}
+          {/* Footer avec infos debug + bouton sync */}
           {workflows.length > 0 && (
-            <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-gray-400">
-              <p className="flex items-center gap-2 font-medium text-gray-300">
-                <AlertCircle className="h-4 w-4" />
-                Debug info:
-              </p>
-              <p className="mt-1 flex items-start gap-2">
-                <Link2 className="h-3 w-3 mt-0.5 shrink-0" />
-                Clique sur le bouton avec l'icône de lien pour voir l'URL du fichier dans la console
-              </p>
-              <p className="mt-1">
-                • Les fichiers doivent être dans le bucket{" "}
-                <code className="text-gray-200">workflows-json</code> (public)
-              </p>
-              <p className="mt-1">
-                • Les screenshots doivent être dans{" "}
-                <code className="text-gray-200">workflows-screenshots</code> (public)
-              </p>
+            <div className="mt-8 space-y-4">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-gray-400">
+                <p className="flex items-center gap-2 font-medium text-gray-300">
+                  <AlertCircle className="h-4 w-4" />
+                  Debug info:
+                </p>
+                <p className="mt-1 flex items-start gap-2">
+                  <Link2 className="h-3 w-3 mt-0.5 shrink-0" />
+                  Clique sur le bouton avec l'icône de lien pour voir l'URL du fichier dans la console
+                </p>
+                <p className="mt-1">
+                  • Les fichiers doivent être dans le bucket{" "}
+                  <code className="text-gray-200">workflows-json</code> (public)
+                </p>
+                <p className="mt-1">
+                  • Les screenshots doivent être dans{" "}
+                  <code className="text-gray-200">workflows-screenshots</code> (public)
+                </p>
+              </div>
+
+              {/* Bouton de synchronisation des métadonnées */}
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={syncMetadataToDatabase}
+                  disabled={isSyncing}
+                  className="inline-flex items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-sm font-medium text-purple-200 transition hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? "Synchronisation..." : "Mettre à jour les métadonnées"}
+                </button>
+              </div>
             </div>
           )}
         </div>

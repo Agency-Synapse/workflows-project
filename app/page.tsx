@@ -63,7 +63,7 @@ export default function HomePage() {
       }
 
       // Créer également un lead dans la table leads pour l'accès aux workflows
-      await supabase
+      const { error: leadInsertError } = await supabase
         .from("leads")
         .insert({
           email: cleanEmail,
@@ -72,7 +72,36 @@ export default function HomePage() {
           access_token: token
         });
 
-      console.log("✅ Inscription waitlist OK");
+      // Si l'email existe déjà dans leads, on récupère son token existant
+      if (leadInsertError && leadInsertError.code === "23505") {
+        console.log("⚠️ Email déjà dans leads, récupération du token existant...");
+        const { data: existingLead } = await supabase
+          .from("leads")
+          .select("access_token")
+          .eq("email", cleanEmail)
+          .maybeSingle();
+        
+        if (existingLead?.access_token) {
+          console.log("✅ Token existant trouvé:", existingLead.access_token);
+          setSuccess(true);
+          setTimeout(() => {
+            router.push(`/workflows?token=${encodeURIComponent(existingLead.access_token)}`);
+          }, 2000);
+          return;
+        }
+        
+        // Si pas de token, on affiche une erreur claire
+        console.error("❌ Lead existe mais sans token");
+        throw new Error("Lead existant sans token. Contacte le support.");
+      }
+      
+      // Si autre erreur lors de l'insert
+      if (leadInsertError) {
+        console.error("❌ Erreur insertion lead:", leadInsertError);
+        throw new Error(leadInsertError.message);
+      }
+
+      console.log("✅ Inscription waitlist OK, token:", token);
 
       // Afficher le message de succès
       setSuccess(true);
