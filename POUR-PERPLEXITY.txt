@@ -1,0 +1,90 @@
+PROBLÈME : Application Next.js 16 + Supabase PostgreSQL - Flux d'inscription bloqué
+
+STACK :
+- Next.js 16.1.6 (App Router)
+- Supabase PostgreSQL
+- TypeScript
+- Vercel
+
+OBJECTIF :
+Landing page SaaS waitlist → Utilisateur entre email → Token généré → Redirection /workflows?token=xxx → Affichage workflows depuis DB
+
+PROBLÈMES RENCONTRÉS :
+
+1. ERREUR CONTRAINTE SQL :
+ERROR: 42P18: there is no unique or exclusion constraint matching the ON CONFLICT specification
+
+Code qui échoue :
+INSERT INTO leads (email, first_name, last_name, access_token) 
+VALUES ('test@example.com', NULL, NULL, 'uuid-token')
+ON CONFLICT (email) DO UPDATE SET access_token = 'uuid-token'
+
+Cause : Table "leads" n'a pas de contrainte UNIQUE sur "email"
+
+2. TENTATIVE D'AJOUT CONTRAINTE ÉCHOUE :
+ERROR: 42P07: relation "leads_access_token_unique" already exists
+
+Code qui échoue :
+ALTER TABLE leads ADD CONSTRAINT leads_access_token_unique UNIQUE (access_token);
+
+Cause : Contrainte existe déjà mais ON CONFLICT ne la détecte pas
+
+3. DOUBLONS D'EMAIL :
+Code actuel fait INSERT → échoue si email existe déjà → bloque tout le flux
+Besoin : Récupérer le token existant si email déjà inscrit
+
+4. TOKEN INVALIDE :
+Utilisateur s'inscrit → token généré → mais pas inséré dans DB (erreur contrainte) → redirection /workflows?token=xxx → erreur "Token invalide"
+
+5. DÉPLOIEMENT VERCEL 404 :
+Le site retourne DEPLOYMENT_NOT_FOUND après plusieurs push GitHub
+
+QUESTIONS POUR PERPLEXITY :
+
+1. Comment ajouter une contrainte UNIQUE sur une colonne PostgreSQL qui contient déjà des doublons potentiels ? (nettoyer d'abord ?)
+
+2. Quelle est la syntaxe correcte Supabase JS pour un UPSERT qui :
+   - Insère si email n'existe pas
+   - Met à jour le token si email existe déjà
+   - Gère les conflits sur la colonne "email"
+
+3. Comment vérifier/recréer proprement les contraintes UNIQUE dans PostgreSQL quand on a l'erreur "already exists" mais que ON CONFLICT ne fonctionne pas ?
+
+4. Meilleure pratique pour un système d'authentification par token avec Supabase : stocker le token dans la table users ou table séparée ? Gérer comment les doublons d'email ?
+
+CODE ACTUEL (simplifié) :
+
+// Inscription (app/page.tsx)
+const token = crypto.randomUUID();
+const { error } = await supabase
+  .from("leads")
+  .insert({ email, access_token: token });
+
+if (error?.code === "23505") {
+  // Doublon détecté, récupérer le token existant
+  const { data } = await supabase
+    .from("leads")
+    .select("access_token")
+    .eq("email", email)
+    .maybeSingle();
+  
+  router.push(`/workflows?token=${data.access_token}`);
+}
+
+// Workflows (app/workflows/page.tsx)
+const token = searchParams.get("token");
+const { data: lead } = await supabase
+  .from("leads")
+  .select("*")
+  .eq("access_token", token)
+  .maybeSingle();
+
+if (!lead) {
+  throw new Error("Token invalide");
+}
+
+BESOIN D'AIDE SUR :
+- Comment nettoyer et recréer proprement les contraintes UNIQUE
+- Syntaxe correcte pour UPSERT avec Supabase JS
+- Éviter les erreurs de doublons tout en permettant la réinscription
+- Comprendre pourquoi "already exists" mais ON CONFLICT échoue
