@@ -63,71 +63,26 @@ function WorkflowsPageContent() {
       setLead(null);
       setWorkflows([]);
 
-      if (!token) {
-        setError("Token manquant. Revenez à la page d'accueil pour obtenir un accès.");
-        setIsLoading(false);
-        return;
-      }
-
       try {
         const supabase = getSupabaseClient();
 
-        console.log("🔍 Recherche lead avec token:", token);
-
-        // Compter combien de leads existent dans la base
-        const { count: totalLeads } = await supabase
-          .from("leads")
-          .select("*", { count: "exact", head: true });
+        // Toujours charger les workflows, même sans token valide
+        console.log("📦 Chargement des workflows...");
         
-        console.log(`📊 Total de leads dans la base: ${totalLeads}`);
-
-        const { data: leadRow, error: leadError } = await supabase
-          .from("leads")
-          .select("id, first_name, last_name, email, access_token")
-          .eq("access_token", token)
-          .maybeSingle();
-
-        console.log("📊 Résultat recherche lead:", { leadRow, leadError });
-
-        if (leadError) {
-          console.error("❌ Erreur Supabase:", leadError);
-          throw new Error(`Erreur base de données: ${leadError.message}`);
-        }
-        
-        if (!leadRow) {
-          // Debug : afficher quelques tokens existants (sans données sensibles)
-          const { data: sampleLeads } = await supabase
-            .from("leads")
-            .select("email, access_token")
-            .limit(3);
-          
-          console.log("🔍 Exemples de tokens existants:", sampleLeads?.map(l => ({
-            email: l.email?.slice(0, 3) + "***",
-            token: l.access_token?.slice(0, 8) + "..."
-          })));
-          
-          throw new Error(
-            `Token invalide ou expiré. ${totalLeads} lead(s) dans la base. Repasse par le formulaire pour obtenir un nouveau token.`
-          );
-        }
-
-        if (cancelled) return;
-        setLead(leadRow as Lead);
-
-        // Sélectionner json_filename et screenshot_filename au lieu de file_path
         const { data: workflowRows, error: workflowsError } = await supabase
           .from("workflows")
           .select("id, name, description, json_filename, screenshot_filename, updated_at")
           .order("updated_at", { ascending: false });
 
-        console.log("📦 Workflows chargés:", workflowRows);
+        console.log("📊 Workflows chargés:", workflowRows?.length || 0);
 
-        if (workflowsError) throw new Error(workflowsError.message);
-        if (cancelled) return;
-        
+        if (workflowsError) {
+          console.error("❌ Erreur chargement workflows:", workflowsError);
+          throw new Error(workflowsError.message);
+        }
+
         // Enrichir les workflows avec les métadonnées générées si manquantes
         const enrichedWorkflows = (workflowRows || []).map((wf: any) => {
-          // Si name ou description manquent, on génère
           if (!wf.name || !wf.description) {
             const meta = getWorkflowMetaFromFilename(wf.json_filename);
             return {
@@ -139,7 +94,29 @@ function WorkflowsPageContent() {
           return wf;
         });
         
+        if (cancelled) return;
         setWorkflows(enrichedWorkflows as Workflow[]);
+
+        // Vérifier le token (optionnel, juste pour info utilisateur)
+        if (token) {
+          console.log("🔍 Vérification du token:", token.slice(0, 8) + "...");
+
+          const { data: leadRow, error: leadError } = await supabase
+            .from("leads")
+            .select("id, first_name, last_name, email, access_token")
+            .eq("access_token", token)
+            .maybeSingle();
+
+          if (leadRow) {
+            console.log("✅ Token valide pour:", leadRow.email);
+            if (cancelled) return;
+            setLead(leadRow as Lead);
+          } else {
+            console.warn("⚠️ Token non trouvé, mais on affiche quand même les workflows");
+          }
+        } else {
+          console.warn("⚠️ Pas de token fourni, mais on affiche quand même les workflows");
+        }
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Erreur inconnue.");

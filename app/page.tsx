@@ -46,70 +46,66 @@ export default function HomePage() {
     setIsSubmitting(true);
     try {
       const supabase = getSupabaseClient();
-      const token = crypto.randomUUID();
+      
+      console.log("📧 Inscription pour:", cleanEmail);
 
-      // Insert dans saas_waitlist
-      const { error: insertError } = await supabase
-        .from("saas_waitlist")
-        .insert({ email: cleanEmail });
+      // ÉTAPE 1 : Vérifier si le lead existe déjà
+      const { data: existingLead } = await supabase
+        .from("leads")
+        .select("access_token")
+        .eq("email", cleanEmail)
+        .maybeSingle();
 
-      if (insertError) {
-        // Si l'email existe déjà (doublon)
-        if (insertError.code === "23505") {
-          setError("Cet email est déjà sur la liste d'attente ! 🎉");
-          return;
+      let finalToken: string;
+
+      if (existingLead?.access_token) {
+        // Lead existe déjà avec un token → on le réutilise
+        console.log("✅ Lead existant trouvé, réutilisation du token");
+        finalToken = existingLead.access_token;
+      } else {
+        // Lead n'existe pas ou sans token → on crée/met à jour
+        finalToken = crypto.randomUUID();
+        console.log("🆕 Création d'un nouveau lead avec token:", finalToken);
+
+        // Utiliser upsert pour insérer ou mettre à jour
+        const { error: upsertError } = await supabase
+          .from("leads")
+          .upsert(
+            {
+              email: cleanEmail,
+              first_name: null,
+              last_name: null,
+              access_token: finalToken
+            },
+            { onConflict: "email" }
+          );
+
+        if (upsertError) {
+          console.error("❌ Erreur upsert lead:", upsertError);
+          throw new Error(upsertError.message);
         }
-        throw new Error(insertError.message);
       }
 
-      // Créer également un lead dans la table leads pour l'accès aux workflows
-      const { error: leadInsertError } = await supabase
-        .from("leads")
-        .insert({
-          email: cleanEmail,
-          first_name: null,
-          last_name: null,
-          access_token: token
+      // ÉTAPE 2 : Ajouter dans saas_waitlist (si pas déjà présent)
+      await supabase
+        .from("saas_waitlist")
+        .insert({ email: cleanEmail })
+        .then(({ error }) => {
+          // Ignorer l'erreur de doublon (23505)
+          if (error && error.code !== "23505") {
+            console.warn("⚠️ Erreur saas_waitlist (non bloquante):", error.message);
+          }
         });
 
-      // Si l'email existe déjà dans leads, on récupère son token existant
-      if (leadInsertError && leadInsertError.code === "23505") {
-        console.log("⚠️ Email déjà dans leads, récupération du token existant...");
-        const { data: existingLead } = await supabase
-          .from("leads")
-          .select("access_token")
-          .eq("email", cleanEmail)
-          .maybeSingle();
-        
-        if (existingLead?.access_token) {
-          console.log("✅ Token existant trouvé:", existingLead.access_token);
-          setSuccess(true);
-          setTimeout(() => {
-            router.push(`/workflows?token=${encodeURIComponent(existingLead.access_token)}`);
-          }, 2000);
-          return;
-        }
-        
-        // Si pas de token, on affiche une erreur claire
-        console.error("❌ Lead existe mais sans token");
-        throw new Error("Lead existant sans token. Contacte le support.");
-      }
-      
-      // Si autre erreur lors de l'insert
-      if (leadInsertError) {
-        console.error("❌ Erreur insertion lead:", leadInsertError);
-        throw new Error(leadInsertError.message);
-      }
-
-      console.log("✅ Inscription waitlist OK, token:", token);
+      console.log("✅ Inscription terminée, redirection...");
 
       // Afficher le message de succès
       setSuccess(true);
 
-      // Redirection vers les workflows après 2 secondes
+      // Redirection vers les workflows après 1.5 secondes
       setTimeout(() => {
-        router.push(`/workflows?token=${encodeURIComponent(token)}`);
-      }, 2000);
+        router.push(`/workflows?token=${encodeURIComponent(finalToken)}`);
+      }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors de l'inscription. Réessaie dans quelques secondes.");
     } finally {
