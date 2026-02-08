@@ -11,23 +11,42 @@ export async function POST() {
     // 1. Lister tous les fichiers JSON dans le bucket
     const { data: jsonFiles, error: listError } = await supabase.storage
       .from("workflows-json")
-      .list();
+      .list("", {
+        limit: 100,
+        offset: 0,
+        sortBy: { column: "name", order: "asc" },
+      });
 
     if (listError) {
       console.error("❌ Erreur listing bucket:", listError);
       throw new Error(`Erreur listing bucket: ${listError.message}`);
     }
 
-    if (!jsonFiles || jsonFiles.length === 0) {
+    console.log("📦 Fichiers bruts du bucket:", jsonFiles);
+
+    // Filtrer uniquement les fichiers JSON/MD (ignorer dossiers et placeholders)
+    const validFiles = (jsonFiles || []).filter((file) => {
+      return (
+        file.name &&
+        file.name !== ".emptyFolderPlaceholder" &&
+        /\.(json|md)$/i.test(file.name)
+      );
+    });
+
+    if (validFiles.length === 0) {
       return NextResponse.json({
         success: true,
-        message: "Aucun fichier JSON trouvé dans le bucket",
+        message: "Aucun fichier JSON/MD valide trouvé dans le bucket",
         added: 0,
         skipped: 0,
+        debug: {
+          totalFiles: jsonFiles?.length || 0,
+          validFiles: 0,
+        },
       });
     }
 
-    console.log(`📦 ${jsonFiles.length} fichiers JSON trouvés dans le bucket`);
+    console.log(`📦 ${validFiles.length} fichiers valides trouvés:`, validFiles.map(f => f.name));
 
     // 2. Récupérer tous les workflows existants dans la table
     const { data: existingWorkflows, error: selectError } = await supabase
@@ -48,7 +67,10 @@ export async function POST() {
     // 3. Lister les screenshots disponibles
     const { data: screenshotFiles } = await supabase.storage
       .from("workflows-screenshots")
-      .list();
+      .list("", {
+        limit: 100,
+        offset: 0,
+      });
 
     const screenshotMap = new Map();
     if (screenshotFiles) {
@@ -64,11 +86,7 @@ export async function POST() {
     const newWorkflows = [];
     let skipped = 0;
 
-    for (const file of jsonFiles) {
-      // Ignorer les dossiers (ils ont name === "")
-      if (!file.name || file.name === ".emptyFolderPlaceholder") {
-        continue;
-      }
+    for (const file of validFiles) {
 
       // Vérifier si ce workflow existe déjà
       if (existingFilenames.has(file.name)) {

@@ -31,6 +31,10 @@ export const WORKFLOW_PRESETS: Record<string, WorkflowMeta> = {
     name: "Claude Context Remotion",
     description: "Mon contexte Claude pour générer des vidéos Remotion automatiquement avec l'IA."
   },
+  "Veille IA 8H.json": {
+    name: "Veille IA - Automatisation 8H",
+    description: "Workflow de veille technologique IA avec extraction et synthèse automatique toutes les 8 heures."
+  },
   "lead-gen.json": {
     name: "Lead Gen LinkedIn",
     description: "Extraction et qualification automatique de leads depuis LinkedIn."
@@ -49,10 +53,16 @@ function generateNameFromFilename(filename: string): string {
   // Retirer l'extension
   const nameWithoutExt = filename.replace(/\.(json|md)$/i, "");
   
-  // Split par tirets/underscores et capitaliser
+  // Split par tirets/underscores/espaces et capitaliser
   const words = nameWithoutExt
-    .split(/[-_]/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .split(/[-_\s]+/)
+    .map(word => {
+      // Garder les acronymes en majuscules (ex: IA, SEO, CRO)
+      if (word.length <= 3 && word === word.toUpperCase()) {
+        return word;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
     .join(" ");
   
   return words || "Workflow n8n";
@@ -85,6 +95,9 @@ function generateDescriptionFromFilename(filename: string): string {
   }
   if (lowerFilename.includes("claude") || lowerFilename.includes("context")) {
     return "Contexte et prompts optimisés pour automatiser avec l'IA.";
+  }
+  if (lowerFilename.includes("veille") || lowerFilename.includes("monitoring") || lowerFilename.includes("watch")) {
+    return "Système de veille automatisée avec collecte et synthèse d'informations.";
   }
   
   // Fallback générique
