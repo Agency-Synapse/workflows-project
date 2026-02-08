@@ -53,6 +53,7 @@ function WorkflowsPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingFromStorage, setIsSyncingFromStorage] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,6 +223,56 @@ function WorkflowsPageContent() {
       alert("Erreur lors de la synchronisation");
     } finally {
       setIsSyncing(false);
+    }
+  }
+
+  // Fonction pour synchroniser depuis les buckets Storage
+  async function syncFromStorage() {
+    setIsSyncingFromStorage(true);
+    try {
+      console.log("🔄 Synchronisation depuis Storage...");
+      
+      const response = await fetch("/api/sync-workflows", {
+        method: "POST",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Erreur synchronisation");
+      }
+
+      console.log("✅ Résultat sync:", result);
+
+      // Recharger les workflows
+      const supabase = getSupabaseClient();
+      const { data: refreshedWorkflows } = await supabase
+        .from("workflows")
+        .select("id, name, description, json_filename, screenshot_filename, updated_at")
+        .order("updated_at", { ascending: false });
+      
+      if (refreshedWorkflows) {
+        // Enrichir avec métadonnées
+        const enriched = refreshedWorkflows.map((wf: any) => {
+          if (!wf.name || !wf.description) {
+            const meta = getWorkflowMetaFromFilename(wf.json_filename);
+            return {
+              ...wf,
+              name: wf.name || meta.name,
+              description: wf.description || meta.description
+            };
+          }
+          return wf;
+        });
+        setWorkflows(enriched as Workflow[]);
+      }
+
+      alert(`✅ ${result.message}\n\n${result.added} workflow(s) ajouté(s)\n${result.skipped} déjà existant(s)`);
+    } catch (err) {
+      console.error("❌ Erreur sync Storage:", err);
+      alert(`❌ Erreur: ${err instanceof Error ? err.message : "Erreur inconnue"}`);
+    } finally {
+      setIsSyncingFromStorage(false);
     }
   }
 
@@ -411,16 +462,28 @@ function WorkflowsPageContent() {
                 </p>
               </div>
 
-              {/* Bouton de synchronisation des métadonnées */}
-              <div className="flex justify-center">
+              {/* Boutons de synchronisation */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+                {/* Bouton : Sync depuis Storage */}
+                <button
+                  type="button"
+                  onClick={syncFromStorage}
+                  disabled={isSyncingFromStorage}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-fuchsia-500/30 bg-gradient-to-r from-fuchsia-500/10 to-pink-500/10 px-4 py-2 text-sm font-medium text-fuchsia-200 transition hover:from-fuchsia-500/20 hover:to-pink-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download className={`h-4 w-4 ${isSyncingFromStorage ? 'animate-bounce' : ''}`} />
+                  {isSyncingFromStorage ? "Synchronisation..." : "Synchroniser depuis Storage"}
+                </button>
+
+                {/* Bouton : Mettre à jour métadonnées */}
                 <button
                   type="button"
                   onClick={syncMetadataToDatabase}
                   disabled={isSyncing}
-                  className="inline-flex items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-sm font-medium text-purple-200 transition hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-sm font-medium text-purple-200 transition hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                  {isSyncing ? "Synchronisation..." : "Mettre à jour les métadonnées"}
+                  {isSyncing ? "Mise à jour..." : "Mettre à jour les métadonnées"}
                 </button>
               </div>
             </div>
