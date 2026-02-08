@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { getWorkflowMetaFromFilename } from "@/lib/workflowsMeta";
 
 export async function POST() {
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseServerClient();
 
     console.log("🔄 Début de la synchronisation des workflows...");
+    console.log("📍 Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
 
     // 1. Lister tous les fichiers JSON dans le bucket
+    console.log("📦 Tentative de listing du bucket workflows-json...");
     const { data: jsonFiles, error: listError } = await supabase.storage
       .from("workflows-json")
       .list("", {
